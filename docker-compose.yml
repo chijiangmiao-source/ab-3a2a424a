@@ -1,0 +1,46 @@
+name: diffraction-audit
+
+services:
+  api:
+    build: ./backend
+    ports:
+      - "${API_PORT:-8000}:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3).status == 200 else 1)"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
+    restart: unless-stopped
+
+  web:
+    build: ./frontend
+    ports:
+      - "${WEB_PORT:-8080}:80"
+    depends_on:
+      api:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
+    restart: unless-stopped
+
+  # 一次性验收服务：等待 web/api 健康后执行端到端验收，以退出码报告结果
+  verify:
+    image: python:3.12-slim
+    working_dir: /app
+    volumes:
+      - ./verify:/app:ro
+    environment:
+      API_URL: http://api:8000
+      WEB_URL: http://web
+    depends_on:
+      api:
+        condition: service_healthy
+      web:
+        condition: service_healthy
+    command: ["python", "verify.py"]
+    restart: "no"
